@@ -12,7 +12,7 @@ st.set_page_config(layout="wide", page_title="Blue Horizon: Prime", page_icon="�
 
 # 🔥 ВПИШИ ИМЯ СВОЕГО БОТА СЮДА (без @) 🔥
 # Например: "MySuperTradeBot"
-YOUR_BOT_NAME = "CryptoTerminal_Bot" 
+YOUR_BOT_NAME = "bussinessalertbot" 
 
 # --- 2. STYLES (CYBERPUNK) ---
 st.markdown("""
@@ -186,7 +186,7 @@ elif menu == "UPLINK (TG)":
         
         # --- КНОПКА ССЫЛКИ НА БОТА ---
         # Ссылка формируется автоматически из переменной в начале кода
-        bot_link = f"https://t.me/{@bussinessalertbot}?start=auth"
+        bot_link = f"https://t.me/{bussinessalertbot}?start=auth"
         
         st.markdown(f"""
             <a href="{bot_link}" target="_blank" style="text-decoration:none;">
