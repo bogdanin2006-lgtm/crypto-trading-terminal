@@ -186,7 +186,7 @@ elif menu == "UPLINK (TG)":
         
         # --- КНОПКА ССЫЛКИ НА БОТА ---
         # Ссылка формируется автоматически из переменной в начале кода
-        bot_link = f"https://t.me/{YOUR_BOT_NAME}?start=auth"
+        bot_link = f"https://t.me/{@bussinessalertbot}?start=auth"
         
         st.markdown(f"""
             <a href="{bot_link}" target="_blank" style="text-decoration:none;">
