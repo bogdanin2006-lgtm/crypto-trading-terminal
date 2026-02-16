@@ -5,6 +5,7 @@ import ccxt
 import requests
 import time
 import random
+import numpy as np  # <--- ВОТ ЭТО БЫЛО ПРОПУЩЕНО
 from datetime import datetime
 
 # ==========================================
