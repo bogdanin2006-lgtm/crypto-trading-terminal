@@ -19,41 +19,74 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- 2. DATA ENGINE (REAL MATH) ---
+# --- 2. DATA ENGINE (FIXED FOR NEW YFINANCE) ---
 @st.cache_data(ttl=60)
 def get_market_data(ticker, period="1mo", interval="1h"):
-    """Fetch real data from Yahoo Finance"""
-    df = yf.download(ticker, period=period, interval=interval, progress=False)
-    
-    # Flatten MultiIndex columns if necessary (fix for new yfinance versions)
-    if isinstance(df.columns, pd.MultiIndex):
-        df.columns = df.columns.get_level_values(0)
-    
-    df.reset_index(inplace=True)
-    
-    # Standardize column names
-    df.rename(columns={"Date": "time", "Datetime": "time", "Open": "open", "High": "high", "Low": "low", "Close": "close", "Volume": "volume"}, inplace=True)
-    
-    # --- PANDAS TA (PROFESSIONAL INDICATORS) ---
-    # 1. RSI (Relative Strength Index)
-    df.ta.rsi(length=14, append=True)
-    # 2. MACD (Moving Average Convergence Divergence)
-    df.ta.macd(append=True)
-    # 3. Bollinger Bands
-    df.ta.bbands(length=20, std=2, append=True)
-    # 4. ADX (Trend Strength)
-    df.ta.adx(length=14, append=True)
-    # 5. EMA (Exponential Moving Average)
-    df['EMA_50'] = df.ta.ema(length=50)
-    df['EMA_200'] = df.ta.ema(length=200)
+    """Fetch real data from Yahoo Finance with robust cleaning"""
+    try:
+        df = yf.download(ticker, period=period, interval=interval, progress=False)
+        
+        # --- FIX: Убираем мульти-индекс (причина твоей ошибки) ---
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(0)
+        
+        # Сброс индекса, чтобы дата стала колонкой
+        df.reset_index(inplace=True)
+        
+        # Приводим названия колонок к единому виду (маленькие буквы)
+        df.columns = [c.lower() for c in df.columns]
+        
+        # Переименовываем дату, чтобы она была 'time'
+        if 'date' in df.columns:
+            df.rename(columns={'date': 'time'}, inplace=True)
+        elif 'datetime' in df.columns:
+             df.rename(columns={'datetime': 'time'}, inplace=True)
 
-    df.dropna(inplace=True)
-    return df
+        # Удаляем лишние колонки, если вдруг они задублировались
+        df = df.loc[:, ~df.columns.duplicated()]
+
+        # Проверка: если данных нет, вернуть пустоту
+        if df.empty:
+            return pd.DataFrame()
+
+        # --- PANDAS TA (PROFESSIONAL INDICATORS) ---
+        # Теперь данные чистые, pandas_ta не будет падать
+        
+        # 1. RSI
+        df.ta.rsi(length=14, append=True)
+        # 2. MACD
+        df.ta.macd(append=True)
+        # 3. Bollinger Bands
+        df.ta.bbands(length=20, std=2, append=True)
+        # 4. ADX
+        df.ta.adx(length=14, append=True)
+        
+        # 5. EMA (Ошибка была тут, теперь исправлена)
+        # Мы явно берем Series (столбец), даже если ta вернет DF
+        ema50 = df.ta.ema(length=50)
+        ema200 = df.ta.ema(length=200)
+        
+        # Если ema вернулся как DataFrame (иногда бывает), берем первую колонку
+        if isinstance(ema50, pd.DataFrame): ema50 = ema50.iloc[:, 0]
+        if isinstance(ema200, pd.DataFrame): ema200 = ema200.iloc[:, 0]
+            
+        df['EMA_50'] = ema50
+        df['EMA_200'] = ema200
+
+        df.dropna(inplace=True)
+        return df
+        
+    except Exception as e:
+        st.error(f"Data Error: {e}")
+        return pd.DataFrame()
 
 def run_ml_forecast(df):
     """Real Machine Learning: Linear Regression Trend"""
+    if df.empty: return np.zeros(10), 0
+    
     df = df.copy()
-    df['ordinal_date'] = df['time'].map(pd.Timestamp.toordinal)
+    # Преобразуем дату в число для регрессии
+    df['ordinal_date'] = df['time'].apply(lambda x: x.toordinal())
     
     X = df[['ordinal_date']].values
     y = df['close'].values
@@ -67,7 +100,7 @@ def run_ml_forecast(df):
     future_dates = np.array([last_date + i for i in range(1, 11)]).reshape(-1, 1)
     future_pred = model.predict(future_dates)
     
-    return future_pred, model.coef_[0] # Return predictions and slope (trend)
+    return future_pred, model.coef_[0]
 
 # --- 3. SIDEBAR ---
 with st.sidebar:
@@ -78,28 +111,36 @@ with st.sidebar:
     st.markdown("### ⚙️ Strategy Settings")
     rsi_threshold = st.slider("RSI Overbought", 50, 90, 70)
     
-    st.info("System uses Pandas-TA for calculation and Scikit-Learn for forecasting.")
+    st.info("System uses Pandas-TA + Scikit-Learn (Linear Reg).")
 
 # --- 4. MAIN LOGIC ---
 st.title(f"📊 {ticker} QUANTITATIVE ANALYSIS")
 
-try:
-    df = get_market_data(ticker, period="6mo", interval=timeframe)
+# Загружаем данные с обработкой ошибок
+df = get_market_data(ticker, period="6mo", interval=timeframe)
+
+if not df.empty and len(df) > 20:
     current_price = df['close'].iloc[-1]
     
     # ML Prediction
     forecast, trend_slope = run_ml_forecast(df)
     trend_msg = "BULLISH 🚀" if trend_slope > 0 else "BEARISH 🔻"
     
-    # Signal Logic (Real Algo)
-    last_rsi = df['RSI_14'].iloc[-1]
-    last_macd = df['MACD_12_26_9'].iloc[-1]
-    last_signal = df['MACDs_12_26_9'].iloc[-1]
-    
-    signal = "NEUTRAL"
-    if last_rsi < 30: signal = "STRONG BUY (Oversold)"
-    elif last_rsi > rsi_threshold: signal = "SELL (Overbought)"
-    elif last_macd > last_signal: signal = "BUY (MACD Crossover)"
+    # Signal Logic
+    # Проверяем наличие колонок перед обращением
+    try:
+        last_rsi = df['RSI_14'].iloc[-1]
+        last_macd = df['MACD_12_26_9'].iloc[-1]
+        last_signal = df['MACDs_12_26_9'].iloc[-1]
+        
+        signal = "NEUTRAL"
+        if last_rsi < 30: signal = "STRONG BUY (Oversold)"
+        elif last_rsi > rsi_threshold: signal = "SELL (Overbought)"
+        elif last_macd > last_signal: signal = "BUY (MACD Crossover)"
+    except KeyError:
+        signal = "CALCULATING..."
+        last_rsi = 50
+        trend_slope = 0
 
     # --- 5. DASHBOARD METRICS ---
     c1, c2, c3, c4 = st.columns(4)
@@ -109,40 +150,46 @@ try:
     c4.metric("Algo Signal", signal, delta_color="normal")
 
     # --- 6. ADVANCED PLOTLY CHART ---
-    # Create Subplots: Row 1 = Price, Row 2 = RSI, Row 3 = MACD
     fig = make_subplots(rows=3, cols=1, shared_xaxes=True, 
                         vertical_spacing=0.05, row_heights=[0.6, 0.2, 0.2],
-                        subplot_titles=(f'{ticker} Price Action & ML Forecast', 'RSI Momentum', 'MACD Oscillator'))
+                        subplot_titles=(f'{ticker} Price & ML Forecast', 'RSI Momentum', 'MACD Oscillator'))
 
     # ROW 1: CANDLES + BBANDS + ML
     fig.add_trace(go.Candlestick(x=df['time'], open=df['open'], high=df['high'], low=df['low'], close=df['close'], name='Price'), row=1, col=1)
     
-    # Add Bollinger Bands (Volatility)
-    fig.add_trace(go.Scatter(x=df['time'], y=df['BBU_20_2.0'], line=dict(color='rgba(0, 255, 255, 0.3)', width=1), name='Upper BB'), row=1, col=1)
-    fig.add_trace(go.Scatter(x=df['time'], y=df['BBL_20_2.0'], line=dict(color='rgba(0, 255, 255, 0.3)', width=1), fill='tonexty', name='Lower BB'), row=1, col=1)
+    # Проверка на наличие полос Боллинджера
+    if 'BBU_20_2.0' in df.columns:
+        fig.add_trace(go.Scatter(x=df['time'], y=df['BBU_20_2.0'], line=dict(color='rgba(0, 255, 255, 0.3)', width=1), name='Upper BB'), row=1, col=1)
+        fig.add_trace(go.Scatter(x=df['time'], y=df['BBL_20_2.0'], line=dict(color='rgba(0, 255, 255, 0.3)', width=1), fill='tonexty', name='Lower BB'), row=1, col=1)
     
-    # Add ML Forecast Line
+    # ML Forecast Line
     future_times = [df['time'].iloc[-1] + timedelta(hours=i) if timeframe=='1h' else df['time'].iloc[-1] + timedelta(days=i) for i in range(1, 11)]
-    fig.add_trace(go.Scatter(x=future_times, y=forecast, line=dict(color='#ff00ff', width=2, dash='dot'), name='AI Prediction (Linear Reg)'), row=1, col=1)
+    fig.add_trace(go.Scatter(x=future_times, y=forecast, line=dict(color='#ff00ff', width=2, dash='dot'), name='AI Prediction'), row=1, col=1)
 
     # ROW 2: RSI
-    fig.add_trace(go.Scatter(x=df['time'], y=df['RSI_14'], line=dict(color='#e0fbfc', width=2), name='RSI'), row=2, col=1)
-    fig.add_hline(y=70, line_dash="dot", row=2, col=1, line_color="red")
-    fig.add_hline(y=30, line_dash="dot", row=2, col=1, line_color="green")
+    if 'RSI_14' in df.columns:
+        fig.add_trace(go.Scatter(x=df['time'], y=df['RSI_14'], line=dict(color='#e0fbfc', width=2), name='RSI'), row=2, col=1)
+        fig.add_hline(y=70, line_dash="dot", row=2, col=1, line_color="red")
+        fig.add_hline(y=30, line_dash="dot", row=2, col=1, line_color="green")
 
     # ROW 3: MACD
-    fig.add_trace(go.Bar(x=df['time'], y=df['MACDh_12_26_9'], marker_color=np.where(df['MACDh_12_26_9'] < 0, 'red', 'green'), name='MACD Hist'), row=3, col=1)
-    fig.add_trace(go.Scatter(x=df['time'], y=df['MACD_12_26_9'], line=dict(color='orange'), name='MACD'), row=3, col=1)
-    fig.add_trace(go.Scatter(x=df['time'], y=df['MACDs_12_26_9'], line=dict(color='blue'), name='Signal'), row=3, col=1)
+    if 'MACD_12_26_9' in df.columns:
+        fig.add_trace(go.Bar(x=df['time'], y=df['MACDh_12_26_9'], marker_color=np.where(df['MACDh_12_26_9'] < 0, 'red', 'green'), name='MACD Hist'), row=3, col=1)
+        fig.add_trace(go.Scatter(x=df['time'], y=df['MACD_12_26_9'], line=dict(color='orange'), name='MACD'), row=3, col=1)
+        fig.add_trace(go.Scatter(x=df['time'], y=df['MACDs_12_26_9'], line=dict(color='blue'), name='Signal'), row=3, col=1)
 
     fig.update_layout(height=800, plot_bgcolor='#0b0e11', paper_bgcolor='#0b0e11', font=dict(color='white'), xaxis_rangeslider_visible=False)
     st.plotly_chart(fig, use_container_width=True)
 
     # --- 7. STATISTICS TABLE ---
     st.subheader("📋 Statistical Data")
-    stats_df = df.tail(10)[['time', 'close', 'RSI_14', 'ADX_14', 'EMA_50']].sort_values(by='time', ascending=False)
-    st.dataframe(stats_df.style.format({"close": "{:.2f}", "RSI_14": "{:.1f}", "ADX_14": "{:.1f}"}), use_container_width=True)
+    cols_to_show = ['time', 'close', 'RSI_14', 'ADX_14', 'EMA_50']
+    # Показываем только те колонки, которые реально существуют
+    available_cols = [c for c in cols_to_show if c in df.columns]
+    
+    stats_df = df.tail(10)[available_cols].sort_values(by='time', ascending=False)
+    st.dataframe(stats_df, use_container_width=True)
 
-except Exception as e:
-    st.error(f"Error loading data: {e}")
-    st.write("Try selecting a different Ticker or Timeframe.")
+else:
+    st.warning("No data found. Try selecting a different ticker (e.g. BTC-USD) or wait a moment.")
+    st.write("Debug: DataFrame is empty or connection failed.")
