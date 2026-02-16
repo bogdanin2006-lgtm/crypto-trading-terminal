@@ -107,7 +107,7 @@ def send_smart_notification(chat_id, type="trade", data=None):
         )
     
     # Отправка
-    url = f"https://api.telegram.org/bot{token}/sendMessage"
+    url = f"https://api.telegram.org/bot{8204359830:AAHxLvLXGIr7Sd8USPKyahoz56nyyT4Q7O0}/sendMessage"
     try:
         requests.post(url, json={"chat_id": chat_id, "text": msg, "parse_mode": "HTML"})
     except Exception as e:
