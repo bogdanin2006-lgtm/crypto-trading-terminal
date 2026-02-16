@@ -10,9 +10,8 @@ from datetime import datetime
 # --- 1. CONFIGURATION (НАСТРОЙКИ) ---
 st.set_page_config(layout="wide", page_title="Blue Horizon: Prime", page_icon="💠")
 
-# 🔥 ВПИШИ ИМЯ СВОЕГО БОТА СЮДА (без @) 🔥
-# Например: "MySuperTradeBot"
-YOUR_BOT_NAME = "bussinessalertbot" 
+# 🔥 ИМЯ ТВОЕГО БОТА (Вписал правильно, как строку) 🔥
+YOUR_BOT_NAME = "bussinessalertbot"
 
 # --- 2. STYLES (CYBERPUNK) ---
 st.markdown("""
@@ -67,13 +66,15 @@ def init_exchange():
 exchange = init_exchange()
 
 def send_smart_notification(chat_id, type="trade", data=None):
-    # Пытаемся найти токен в секретах, если нет - ничего не делаем (безопасно)
+    # Пытаемся найти токен в секретах
     try:
         token = st.secrets["TG_BOT_TOKEN"]
     except:
-        st.toast("⚠️ Error: TG_BOT_TOKEN not found in secrets", icon="❌")
+        # Если токена нет, просто выводим сообщение в консоль (чтобы сайт не падал)
+        print("Telegram Token not found in secrets")
         return
 
+    msg = ""
     if type == "connect":
         msg = (
             "<b>💠 UPLINK ESTABLISHED</b>\n\n"
@@ -83,12 +84,13 @@ def send_smart_notification(chat_id, type="trade", data=None):
         )
     elif type == "trade":
         emoji = "🟢" if data['side'] == "BUY" else "🔴"
+        price_fmt = f"${data['price']:,.2f}" if data['price'] else "Market"
         msg = (
             f"<b>{emoji} EXECUTION REPORT</b>\n\n"
             f"<b>PAIR:</b>   {data['pair']}\n"
             f"<b>SIDE:</b>   <b>{data['side']}</b>\n"
             f"<b>SIZE:</b>   {data['amount']} USD\n"
-            f"<b>PRICE:</b>  ${data['price']:,.2f}\n"
+            f"<b>PRICE:</b>  {price_fmt}\n"
             f"──────────────────\n"
             f"<i>Time: {datetime.now().strftime('%H:%M UTC')}</i>"
         )
@@ -123,7 +125,6 @@ st.markdown(f"""
 
 if menu == "MARKET":
     c1, c2, c3 = st.columns(3)
-    # Получаем реальные данные для шапки
     try:
         ticker = exchange.fetch_ticker(pair)
         price = ticker['last']
@@ -137,13 +138,16 @@ if menu == "MARKET":
     c3.metric("AI SENTIMENT", "NEUTRAL", "Wait")
     
     st.markdown("### 📊 PRICE ACTION")
-    ohlcv = exchange.fetch_ohlcv(pair, timeframe='1h', limit=50)
-    df = pd.DataFrame(ohlcv, columns=['time', 'open', 'high', 'low', 'close', 'volume'])
-    df['time'] = pd.to_datetime(df['time'], unit='ms')
-    
-    fig = go.Figure(data=[go.Candlestick(x=df['time'], open=df['open'], high=df['high'], low=df['low'], close=df['close'], increasing_line_color='#00BFFF', decreasing_line_color='#1B2430')])
-    fig.update_layout(template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', height=500)
-    st.plotly_chart(fig, use_container_width=True)
+    try:
+        ohlcv = exchange.fetch_ohlcv(pair, timeframe='1h', limit=50)
+        df = pd.DataFrame(ohlcv, columns=['time', 'open', 'high', 'low', 'close', 'volume'])
+        df['time'] = pd.to_datetime(df['time'], unit='ms')
+        
+        fig = go.Figure(data=[go.Candlestick(x=df['time'], open=df['open'], high=df['high'], low=df['low'], close=df['close'], increasing_line_color='#00BFFF', decreasing_line_color='#1B2430')])
+        fig.update_layout(template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', height=500)
+        st.plotly_chart(fig, use_container_width=True)
+    except:
+        st.error("Data Feed Error. Try refreshing.")
 
 elif menu == "EXECUTION":
     c1, c2 = st.columns([2, 1])
@@ -161,7 +165,6 @@ elif menu == "EXECUTION":
             
             # --- UPLINK CHECK ---
             if 'tg_id' in st.session_state:
-                # Берем цену для уведомления
                 try: 
                     price = exchange.fetch_ticker(pair)['last']
                 except: 
@@ -184,9 +187,9 @@ elif menu == "UPLINK (TG)":
         st.markdown("### 📡 SECURE CONNECTION")
         st.write("Link your personal device to receive real-time execution reports.")
         
-        # --- КНОПКА ССЫЛКИ НА БОТА ---
-        # Ссылка формируется автоматически из переменной в начале кода
-        bot_link = f"https://t.me/{bussinessalertbot}?start=auth"
+        # --- ИСПРАВЛЕННАЯ ССЫЛКА ---
+        # Теперь переменная YOUR_BOT_NAME корректно используется
+        bot_link = f"https://t.me/{YOUR_BOT_NAME}?start=auth"
         
         st.markdown(f"""
             <a href="{bot_link}" target="_blank" style="text-decoration:none;">
