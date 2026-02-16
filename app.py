@@ -7,9 +7,14 @@ import requests
 import time
 from datetime import datetime
 
-# --- 1. CONFIG & STYLES ---
+# --- 1. CONFIGURATION (НАСТРОЙКИ) ---
 st.set_page_config(layout="wide", page_title="Blue Horizon: Prime", page_icon="💠")
 
+# 🔥 ВПИШИ ИМЯ СВОЕГО БОТА СЮДА (без @) 🔥
+# Например: "MySuperTradeBot"
+YOUR_BOT_NAME = "CryptoTerminal_Bot" 
+
+# --- 2. STYLES (CYBERPUNK) ---
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;600;700&family=Orbitron:wght@500;900&display=swap');
@@ -44,6 +49,7 @@ st.markdown("""
         font-family: 'Orbitron', sans-serif !important;
         text-transform: uppercase;
         letter-spacing: 1px;
+        width: 100%;
     }
     .stButton > button:hover {
         box-shadow: 0 0 15px #00BFFF !important;
@@ -53,66 +59,45 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- 2. BACKEND & API ---
+# --- 3. BACKEND ---
 @st.cache_resource
 def init_exchange():
     return ccxt.kraken({'enableRateLimit': True})
 
 exchange = init_exchange()
 
-# --- 3. PROFESSIONAL NOTIFICATION ENGINE ---
 def send_smart_notification(chat_id, type="trade", data=None):
-    """
-    Отправляет грамотно оформленные уведомления.
-    Types: 'connect', 'trade', 'alert'
-    """
-    # Пытаемся получить токен (если нет в секретах, берем заглушку для демо)
+    # Пытаемся найти токен в секретах, если нет - ничего не делаем (безопасно)
     try:
         token = st.secrets["TG_BOT_TOKEN"]
     except:
-        st.toast("⚠️ System Error: TG_BOT_TOKEN not found in secrets", icon="❌")
+        st.toast("⚠️ Error: TG_BOT_TOKEN not found in secrets", icon="❌")
         return
 
-    # 1. ШАБЛОН: ПОДКЛЮЧЕНИЕ
     if type == "connect":
         msg = (
-            "<b>💠 SYSTEM UPLINK ESTABLISHED</b>\n\n"
-            "Welcome, Commander.\n"
-            "Your terminal <i>Blue Horizon</i> is now successfully linked to this secure channel.\n\n"
-            "<i>Status:</i> 🟢 <b>ONLINE</b>\n"
-            "<i>Encryption:</i> <b>SHA-256</b>"
+            "<b>💠 UPLINK ESTABLISHED</b>\n\n"
+            "Terminal <i>Blue Horizon</i> connected successfully.\n"
+            f"<i>Secure ID:</i> <code>{chat_id}</code>\n"
+            "<i>Status:</i> 🟢 <b>ONLINE</b>"
         )
-    
-    # 2. ШАБЛОН: СДЕЛКА (ОРДЕР)
     elif type == "trade":
         emoji = "🟢" if data['side'] == "BUY" else "🔴"
         msg = (
-            f"<b>{emoji} EXECUTION REPORT</b> | <code>#{int(time.time())}</code>\n\n"
-            f"<b>ASSET:</b>  {data['pair']}\n"
+            f"<b>{emoji} EXECUTION REPORT</b>\n\n"
+            f"<b>PAIR:</b>   {data['pair']}\n"
             f"<b>SIDE:</b>   <b>{data['side']}</b>\n"
             f"<b>SIZE:</b>   {data['amount']} USD\n"
             f"<b>PRICE:</b>  ${data['price']:,.2f}\n"
             f"──────────────────\n"
-            f"<i>Time: {datetime.now().strftime('%H:%M:%S UTC')}</i>"
+            f"<i>Time: {datetime.now().strftime('%H:%M UTC')}</i>"
         )
     
-    # 3. ШАБЛОН: AI СИГНАЛ
-    elif type == "ai_alert":
-        msg = (
-            "<b>🧠 NEURAL NETWORK ALERT</b>\n\n"
-            f"<b>TARGET:</b> {data['pair']}\n"
-            f"<b>SIGNAL:</b> {data['direction']}\n"
-            f"<b>CONFIDENCE:</b> {data['confidence']}%\n\n"
-            "<i>Recommendation: Check chart immediately.</i>"
-        )
-    
-    # Отправка
-    url = f"https://api.telegram.org/bot{8204359830:AAHxLvLXGIr7Sd8USPKyahoz56nyyT4Q7O0}/sendMessage"
+    url = f"https://api.telegram.org/bot{token}/sendMessage"
     try:
         requests.post(url, json={"chat_id": chat_id, "text": msg, "parse_mode": "HTML"})
-    except Exception as e:
-        st.error(f"Transmission Failed: {e}")
-
+    except:
+        pass
 
 # --- 4. UI LAYOUT ---
 with st.sidebar:
@@ -121,7 +106,7 @@ with st.sidebar:
     st.markdown("---")
     pair = st.selectbox("SECURE FEED", ["BTC/USD", "ETH/USD", "SOL/USD"])
 
-# --- 5. PAGE LOGIC ---
+# --- 5. MAIN LOGIC ---
 
 # HEADER
 st.markdown(f"""
@@ -132,20 +117,26 @@ st.markdown(f"""
         </div>
         <div style="text-align:right;">
             <div style="color:#00ff41; font-weight:bold;">● SYSTEM READY</div>
-            <small>{datetime.now().strftime('%H:%M:%S')}</small>
         </div>
     </div>
 """, unsafe_allow_html=True)
 
 if menu == "MARKET":
-    # MOCKUP DATA
     c1, c2, c3 = st.columns(3)
-    c1.metric("BTC PRICE", "$94,320.50", "+1.2%")
-    c2.metric("24H VOLUME", "$34.2B", "+5.4%")
-    c3.metric("AI SENTIMENT", "BULLISH", "82%")
+    # Получаем реальные данные для шапки
+    try:
+        ticker = exchange.fetch_ticker(pair)
+        price = ticker['last']
+        change = ticker['percentage']
+        vol = ticker['baseVolume']
+    except:
+        price, change, vol = 0, 0, 0
+
+    c1.metric("PRICE", f"${price:,.2f}", f"{change:.2f}%")
+    c2.metric("24H VOL", f"{vol:,.0f}", "High")
+    c3.metric("AI SENTIMENT", "NEUTRAL", "Wait")
     
     st.markdown("### 📊 PRICE ACTION")
-    # Chart
     ohlcv = exchange.fetch_ohlcv(pair, timeframe='1h', limit=50)
     df = pd.DataFrame(ohlcv, columns=['time', 'open', 'high', 'low', 'close', 'volume'])
     df['time'] = pd.to_datetime(df['time'], unit='ms')
@@ -161,26 +152,28 @@ elif menu == "EXECUTION":
         st.subheader("⚡ INSTANT ORDER")
         
         side = st.radio("SIDE", ["BUY", "SELL"], horizontal=True)
-        amt = st.number_input("SIZE (USD)", value=5000)
+        amt = st.number_input("SIZE (USD)", value=1000)
         
         if st.button("AUTHORIZE TRANSACTION"):
-            # Получаем реальную цену для красивого уведомления
-            current_price = df['close'].iloc[-1] if 'df' in locals() else 94000
-            
-            st.toast("ORDER SUBMITTED TO ENGINE...", icon="🚀")
+            st.toast("ORDER SENT TO ENGINE...", icon="🚀")
             time.sleep(1)
             st.success(f"{side} ORDER FILLED")
             
-            # --- ОТПРАВКА УВЕДОМЛЕНИЯ ---
+            # --- UPLINK CHECK ---
             if 'tg_id' in st.session_state:
+                # Берем цену для уведомления
+                try: 
+                    price = exchange.fetch_ticker(pair)['last']
+                except: 
+                    price = 0
+                
                 send_smart_notification(
                     st.session_state.tg_id, 
                     type="trade", 
-                    data={'pair': pair, 'side': side, 'amount': amt, 'price': current_price}
+                    data={'pair': pair, 'side': side, 'amount': amt, 'price': price}
                 )
             else:
                 st.warning("Uplink not active. Connect Telegram to receive report.")
-                
         st.markdown('</div>', unsafe_allow_html=True)
 
 elif menu == "UPLINK (TG)":
@@ -189,36 +182,38 @@ elif menu == "UPLINK (TG)":
     with c_login:
         st.markdown('<div class="cyber-card">', unsafe_allow_html=True)
         st.markdown("### 📡 SECURE CONNECTION")
-        st.write("Establish a direct link to the Neural Core via Telegram.")
+        st.write("Link your personal device to receive real-time execution reports.")
         
-        # 1. Ссылка на бота (динамическая или статичная)
-        try:
-            bot_name = st.secrets["TG_BOT_NAME"]
-        except:
-            bot_name = st.text_input("ENTER BOT USERNAME (No @)", "YourBotName")
+        # --- КНОПКА ССЫЛКИ НА БОТА ---
+        # Ссылка формируется автоматически из переменной в начале кода
+        bot_link = f"https://t.me/{YOUR_BOT_NAME}?start=auth"
         
         st.markdown(f"""
-            <a href="https://t.me/{bot_name}?start=auth" target="_blank" style="text-decoration:none;">
+            <a href="{bot_link}" target="_blank" style="text-decoration:none;">
                 <div style="
-                    background: #00BFFF; color: black; padding: 15px; 
+                    background: linear-gradient(45deg, #00BFFF, #0088cc); 
+                    color: white; padding: 15px; 
                     text-align: center; font-weight: bold; border-radius: 5px;
-                    font-family: 'Orbitron'; cursor: pointer; margin: 15px 0;">
-                    👉 INITIATE UPLINK PROTOCOL
+                    font-family: 'Orbitron'; cursor: pointer; margin: 20px 0;
+                    box-shadow: 0 0 15px rgba(0,191,255,0.4);">
+                    👉 OPEN TELEGRAM UPLINK
                 </div>
             </a>
         """, unsafe_allow_html=True)
         
-        st.caption("1. Click button above.\n2. Press START in Telegram.\n3. Enter your Uplink ID below.")
+        st.info("1. Click button above.\n2. Press START in Telegram.\n3. Enter the ID you receive below.")
         
-        # 2. Ввод ID (Сделан как "Верификация")
-        uplink_id = st.text_input("UPLINK ID (CHAT ID)", type="password")
+        # Ввод ID
+        uplink_id = st.text_input("ENTER UPLINK ID", placeholder="Example: 123456789")
         
         if st.button("VERIFY CONNECTION"):
             if uplink_id:
                 st.session_state.tg_id = uplink_id
                 st.balloons()
                 send_smart_notification(uplink_id, type="connect")
-                st.success("HANDSHAKE COMPLETE. SECURE CHANNEL ACTIVE.")
+                st.success("HANDSHAKE COMPLETE. CHANNEL SECURE.")
+            else:
+                st.error("Please enter a valid ID.")
         
         st.markdown('</div>', unsafe_allow_html=True)
         
@@ -226,15 +221,10 @@ elif menu == "UPLINK (TG)":
         if 'tg_id' in st.session_state:
             st.markdown('<div class="cyber-card" style="border-left: 3px solid #00ff41;">', unsafe_allow_html=True)
             st.markdown("### 🟢 STATUS: ONLINE")
-            st.write(f"**Target ID:** `{st.session_state.tg_id}`")
-            st.write("**Latency:** 12ms")
+            st.write(f"**Linked ID:** `{st.session_state.tg_id}`")
             
-            if st.button("TEST NEURAL ALERT"):
-                send_smart_notification(
-                    st.session_state.tg_id, 
-                    type="ai_alert", 
-                    data={'pair': pair, 'direction': 'STRONG BUY', 'confidence': 94}
-                )
+            if st.button("TEST SIGNAL"):
+                send_smart_notification(st.session_state.tg_id, type="connect")
                 st.info("Signal transmitted.")
             
             if st.button("TERMINATE CONNECTION"):
