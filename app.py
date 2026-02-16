@@ -104,40 +104,64 @@ elif menu == "Trading Terminal":
     
     with col_order:
         st.subheader("Order Placement")
-        side = st.segmented_control("Action", ["BUY", "SELL"], default="BUY")
+        # Исправлено: segmented_control требует список опций
+        side = st.radio("Action", ["BUY", "SELL"], horizontal=True) 
         amount = st.number_input("Amount to trade", min_value=0.0, step=0.01)
-        price_limit = st.number_input("Limit Price", value=0.0)
+        # Получаем текущую цену для дефолтного значения
+        try:
+            ticker_data = exchange.fetch_ticker(pair)
+            last_price = ticker_data['last']
+        except:
+            last_price = 0.0
+            
+        price_limit = st.number_input("Limit Price", value=last_price)
         
         if st.button(f"Execute {side} Order"):
-            st.warning("Simulation: Order sent to Kraken matching engine.")
+            st.warning(f"Simulation: {side} order for {amount} {pair} sent.")
             if tg_token and tg_chat:
-                send_telegram_msg(tg_token, tg_chat, f"🚀 Alert: {side} order for {amount} {pair} executed!")
+                send_telegram_msg(tg_token, tg_chat, f"🚀 Alert: {side} {amount} {pair} @ {price_limit}")
 
     with col_tools:
         st.subheader("Market Depth")
-        ob = exchange.fetch_order_book(pair)
-        bids = pd.DataFrame(ob['bids'], columns=['Price', 'Qty']).head(5)
-        st.write("Current Bids")
-        st.dataframe(bids, hide_index=True)
+        try:
+            ob = exchange.fetch_order_book(pair)
+            
+            # БЕЗОПАСНОЕ СОЗДАНИЕ DATAFRAME
+            # Превращаем данные в обычный список списков, чтобы pandas не ругался
+            bids_list = list(ob.get('bids', []))[:5]
+            asks_list = list(ob.get('asks', []))[:5]
+            
+            if bids_list:
+                bids_df = pd.DataFrame(bids_list, columns=['Price', 'Quantity'])
+                st.write("Current Bids (Buy)")
+                st.dataframe(bids_df, hide_index=True, use_container_width=True)
+            
+            if asks_list:
+                asks_df = pd.DataFrame(asks_list, columns=['Price', 'Quantity'])
+                st.write("Current Asks (Sell)")
+                st.dataframe(asks_df, hide_index=True, use_container_width=True)
+                
+        except Exception as e:
+            st.error("Order Book is temporarily unavailable")
 
-elif menu == "Portfolio":
-    st.header("💼 Asset Allocation")
-    c1, c2 = st.columns([1, 1])
-    with c1:
-        st.markdown("""<div class="card">
-            <h3 style='margin-top:0;'>Estimated Balance</h3>
-            <h1 style='color:#00BFFF;'>$24,105.80</h1>
-            <p style='color:#00ff00;'>+12.4% Monthly Growth</p>
-        </div>""", unsafe_allow_html=True)
-    with c2:
-        fig = go.Figure(data=[go.Pie(labels=['BTC', 'ETH', 'USD'], values=[55, 35, 10], hole=.4)])
-        fig.update_layout(template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)', margin=dict(t=0, b=0, l=0, r=0))
-        st.plotly_chart(fig, use_container_width=True)
+# --- 6. AUTO-SCANNER (ALERTS) ---
+st.sidebar.markdown("---")
+st.sidebar.subheader("🎯 Price Alerts")
+target_price = st.sidebar.number_input("Alert Price ($)", value=0.0)
+alert_condition = st.sidebar.selectbox("Condition", ["Below", "Above"])
 
-elif menu == "System Settings":
-    st.header("⚙️ Terminal Configuration")
-    st.text_input("Kraken API Key", type="password")
-    st.text_input("Kraken Secret Key", type="password")
-    st.selectbox("Default Currency", ["USD", "EUR", "GBP"])
-    if st.button("Save Settings"):
-        st.success("Configuration updated successfully!")
+if target_price > 0:
+    # Проверяем цену
+    current_p = exchange.fetch_ticker(pair)['last']
+    
+    triggered = False
+    if alert_condition == "Below" and current_p < target_price:
+        triggered = True
+    elif alert_condition == "Above" and current_p > target_price:
+        triggered = True
+        
+    if triggered:
+        st.sidebar.error(f"ALERT: {pair} is {alert_condition} {target_price}!")
+        if tg_token and tg_chat:
+            if st.sidebar.button("Send Alert to TG"):
+                send_telegram_msg(tg_token, tg_chat, f"⚠️ ALERT! {pair} is now {current_p:,.2f} USD ({alert_condition} {target_price})")
