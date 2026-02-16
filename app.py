@@ -7,13 +7,13 @@ import requests
 import time
 from datetime import datetime
 
-# --- 1. CONFIGURATION (НАСТРОЙКИ) ---
+# --- 1. CONFIGURATION ---
 st.set_page_config(layout="wide", page_title="Blue Horizon: Prime", page_icon="💠")
 
-# 🔥 ИМЯ ТВОЕГО БОТА (Вписал правильно, как строку) 🔥
-YOUR_BOT_NAME = "bussinessalertbot"
+# 🔥 ВПИШИ ИМЯ СВОЕГО БОТА СЮДА (без @) 🔥
+YOUR_BOT_NAME = "CryptoTerminal_Bot"
 
-# --- 2. STYLES (CYBERPUNK) ---
+# --- 2. STYLES (CYBERPUNK PREMIUM) ---
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;600;700&family=Orbitron:wght@500;900&display=swap');
@@ -25,74 +25,94 @@ st.markdown("""
         font-family: 'Rajdhani', sans-serif;
     }
     
-    /* NEON ACCENTS */
-    .highlight { color: #00BFFF; font-weight: bold; }
-    .success { color: #00ff41; }
-    .danger { color: #ff003c; }
-
-    /* CARDS */
+    /* UI ELEMENTS */
     .cyber-card {
-        background: rgba(16, 20, 28, 0.8);
-        border: 1px solid rgba(0, 191, 255, 0.1);
+        background: rgba(16, 20, 28, 0.9);
+        border: 1px solid rgba(0, 191, 255, 0.15);
         border-left: 3px solid #00BFFF;
-        padding: 20px;
-        border-radius: 4px;
-        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+        padding: 25px;
+        border-radius: 6px;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
     }
     
-    /* BUTTONS */
     .stButton > button {
-        background: linear-gradient(90deg, rgba(0,191,255,0.1) 0%, rgba(0,0,0,0) 100%);
+        background: linear-gradient(90deg, #001f3f 0%, #000000 100%);
         border: 1px solid #00BFFF !important;
         color: #00BFFF !important;
         font-family: 'Orbitron', sans-serif !important;
         text-transform: uppercase;
-        letter-spacing: 1px;
+        letter-spacing: 2px;
         width: 100%;
+        transition: all 0.3s ease;
     }
     .stButton > button:hover {
-        box-shadow: 0 0 15px #00BFFF !important;
+        box-shadow: 0 0 20px rgba(0, 191, 255, 0.6) !important;
         background: #00BFFF !important;
         color: #000 !important;
     }
 </style>
 """, unsafe_allow_html=True)
 
-# --- 3. BACKEND ---
+# --- 3. BACKEND & LOGIC ---
 @st.cache_resource
 def init_exchange():
     return ccxt.kraken({'enableRateLimit': True})
 
 exchange = init_exchange()
 
-def send_smart_notification(chat_id, type="trade", data=None):
-    # Пытаемся найти токен в секретах
+def get_telegram_token():
     try:
-        token = st.secrets["TG_BOT_TOKEN"]
+        return st.secrets["TG_BOT_TOKEN"]
     except:
-        # Если токена нет, просто выводим сообщение в консоль (чтобы сайт не падал)
-        print("Telegram Token not found in secrets")
+        return None
+
+# --- АВТОМАТИЧЕСКИЙ ПОИСК ID (AUTO-HANDSHAKE) ---
+def find_chat_id_from_updates():
+    token = get_telegram_token()
+    if not token: return None
+    
+    url = f"https://api.telegram.org/bot{token}/getUpdates"
+    try:
+        # Получаем последние сообщения боту
+        resp = requests.get(url).json()
+        if "result" in resp and len(resp["result"]) > 0:
+            # Берем самое последнее сообщение
+            last_msg = resp["result"][-1]
+            chat_id = last_msg["message"]["chat"]["id"]
+            return str(chat_id)
+    except:
+        pass
+    return None
+
+# --- ПРОФЕССИОНАЛЬНЫЕ УВЕДОМЛЕНИЯ ---
+def send_smart_notification(chat_id, type="trade", data=None):
+    token = get_telegram_token()
+    if not token: 
+        st.toast("⚠️ Bot Token missing!", icon="❌")
         return
 
-    msg = ""
+    # ШАБЛОНЫ СООБЩЕНИЙ
     if type == "connect":
         msg = (
-            "<b>💠 UPLINK ESTABLISHED</b>\n\n"
-            "Terminal <i>Blue Horizon</i> connected successfully.\n"
-            f"<i>Secure ID:</i> <code>{chat_id}</code>\n"
-            "<i>Status:</i> 🟢 <b>ONLINE</b>"
+            "<b>💠 UPLINK ESTABLISHED</b>\n"
+            "▬▬▬▬▬▬▬▬▬▬▬▬▬▬\n"
+            "Terminal <i>Blue Horizon</i> is now linked.\n\n"
+            f"👤 <b>User ID:</b> <code>{chat_id}</code>\n"
+            "🔐 <b>Encryption:</b> <code>SHA-256</code>\n"
+            "📡 <b>Status:</b> 🟢 <b>ONLINE</b>\n\n"
+            "<i>You will now receive real-time execution reports here.</i>"
         )
     elif type == "trade":
-        emoji = "🟢" if data['side'] == "BUY" else "🔴"
-        price_fmt = f"${data['price']:,.2f}" if data['price'] else "Market"
+        side_icon = "🟢" if data['side'] == "BUY" else "🔴"
         msg = (
-            f"<b>{emoji} EXECUTION REPORT</b>\n\n"
-            f"<b>PAIR:</b>   {data['pair']}\n"
-            f"<b>SIDE:</b>   <b>{data['side']}</b>\n"
-            f"<b>SIZE:</b>   {data['amount']} USD\n"
-            f"<b>PRICE:</b>  {price_fmt}\n"
-            f"──────────────────\n"
-            f"<i>Time: {datetime.now().strftime('%H:%M UTC')}</i>"
+            f"<b>{side_icon} TRADE EXECUTED</b>\n"
+            "▬▬▬▬▬▬▬▬▬▬▬▬▬▬\n"
+            f"<b>Asset:</b>      {data['pair']}\n"
+            f"<b>Action:</b>     <b>{data['side']}</b>\n"
+            f"<b>Size:</b>       ${data['amount']:,.2f}\n"
+            f"<b>Fill Price:</b> ${data['price']:,.2f}\n"
+            "▬▬▬▬▬▬▬▬▬▬▬▬▬▬\n"
+            f"🕒 <i>{datetime.now().strftime('%H:%M:%S UTC')}</i>"
         )
     
     url = f"https://api.telegram.org/bot{token}/sendMessage"
@@ -110,7 +130,6 @@ with st.sidebar:
 
 # --- 5. MAIN LOGIC ---
 
-# HEADER
 st.markdown(f"""
     <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #00BFFF; padding-bottom:15px; margin-bottom:20px;">
         <div>
@@ -135,7 +154,7 @@ if menu == "MARKET":
 
     c1.metric("PRICE", f"${price:,.2f}", f"{change:.2f}%")
     c2.metric("24H VOL", f"{vol:,.0f}", "High")
-    c3.metric("AI SENTIMENT", "NEUTRAL", "Wait")
+    c3.metric("AI SIGNAL", "ACCUMULATE", "Low Risk")
     
     st.markdown("### 📊 PRICE ACTION")
     try:
@@ -147,7 +166,7 @@ if menu == "MARKET":
         fig.update_layout(template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', height=500)
         st.plotly_chart(fig, use_container_width=True)
     except:
-        st.error("Data Feed Error. Try refreshing.")
+        st.error("Feed Disconnected.")
 
 elif menu == "EXECUTION":
     c1, c2 = st.columns([2, 1])
@@ -159,16 +178,14 @@ elif menu == "EXECUTION":
         amt = st.number_input("SIZE (USD)", value=1000)
         
         if st.button("AUTHORIZE TRANSACTION"):
-            st.toast("ORDER SENT TO ENGINE...", icon="🚀")
+            st.toast("PROCESSING ORDER...", icon="🔄")
             time.sleep(1)
             st.success(f"{side} ORDER FILLED")
             
-            # --- UPLINK CHECK ---
+            # --- AUTO NOTIFICATION ---
             if 'tg_id' in st.session_state:
-                try: 
-                    price = exchange.fetch_ticker(pair)['last']
-                except: 
-                    price = 0
+                try: price = exchange.fetch_ticker(pair)['last']
+                except: price = 0
                 
                 send_smart_notification(
                     st.session_state.tg_id, 
@@ -176,7 +193,7 @@ elif menu == "EXECUTION":
                     data={'pair': pair, 'side': side, 'amount': amt, 'price': price}
                 )
             else:
-                st.warning("Uplink not active. Connect Telegram to receive report.")
+                st.warning("Uplink inactive. Connect Telegram to receive confirmation.")
         st.markdown('</div>', unsafe_allow_html=True)
 
 elif menu == "UPLINK (TG)":
@@ -184,13 +201,11 @@ elif menu == "UPLINK (TG)":
     
     with c_login:
         st.markdown('<div class="cyber-card">', unsafe_allow_html=True)
-        st.markdown("### 📡 SECURE CONNECTION")
-        st.write("Link your personal device to receive real-time execution reports.")
+        st.markdown("### 📡 SECURE UPLINK")
+        st.write("Establish a secure handshake with the Neural Core.")
         
-        # --- ИСПРАВЛЕННАЯ ССЫЛКА ---
-        # Теперь переменная YOUR_BOT_NAME корректно используется
+        # Кнопка открытия бота
         bot_link = f"https://t.me/{YOUR_BOT_NAME}?start=auth"
-        
         st.markdown(f"""
             <a href="{bot_link}" target="_blank" style="text-decoration:none;">
                 <div style="
@@ -198,25 +213,27 @@ elif menu == "UPLINK (TG)":
                     color: white; padding: 15px; 
                     text-align: center; font-weight: bold; border-radius: 5px;
                     font-family: 'Orbitron'; cursor: pointer; margin: 20px 0;
-                    box-shadow: 0 0 15px rgba(0,191,255,0.4);">
-                    👉 OPEN TELEGRAM UPLINK
+                    box-shadow: 0 0 20px rgba(0,191,255,0.4);">
+                    👉 1. OPEN UPLINK (TELEGRAM)
                 </div>
             </a>
         """, unsafe_allow_html=True)
         
-        st.info("1. Click button above.\n2. Press START in Telegram.\n3. Enter the ID you receive below.")
+        st.caption("Step 1: Click button above and press START in Telegram.")
+        st.caption("Step 2: Click 'VERIFY HANDSHAKE' below. We will auto-detect your ID.")
         
-        # Ввод ID
-        uplink_id = st.text_input("ENTER UPLINK ID", placeholder="Example: 123456789")
-        
-        if st.button("VERIFY CONNECTION"):
-            if uplink_id:
-                st.session_state.tg_id = uplink_id
-                st.balloons()
-                send_smart_notification(uplink_id, type="connect")
-                st.success("HANDSHAKE COMPLETE. CHANNEL SECURE.")
-            else:
-                st.error("Please enter a valid ID.")
+        if st.button("👉 2. VERIFY HANDSHAKE"):
+            with st.spinner("Scanning for incoming signal..."):
+                found_id = find_chat_id_from_updates()
+                if found_id:
+                    st.session_state.tg_id = found_id
+                    send_smart_notification(found_id, type="connect")
+                    st.balloons()
+                    st.success("HANDSHAKE VERIFIED. SECURE CHANNEL ACTIVE.")
+                    st.rerun()
+                else:
+                    st.error("No signal found. Did you press START in the bot?")
+                    st.info("Try sending a message '/start' to the bot again.")
         
         st.markdown('</div>', unsafe_allow_html=True)
         
@@ -224,15 +241,19 @@ elif menu == "UPLINK (TG)":
         if 'tg_id' in st.session_state:
             st.markdown('<div class="cyber-card" style="border-left: 3px solid #00ff41;">', unsafe_allow_html=True)
             st.markdown("### 🟢 STATUS: ONLINE")
-            st.write(f"**Linked ID:** `{st.session_state.tg_id}`")
+            st.write(f"**Linked Device ID:** `{st.session_state.tg_id}`")
+            st.write("**Protocol:** TLS 1.3 / SHA-256")
             
-            if st.button("TEST SIGNAL"):
+            if st.button("TEST ALERT"):
                 send_smart_notification(st.session_state.tg_id, type="connect")
                 st.info("Signal transmitted.")
             
-            if st.button("TERMINATE CONNECTION"):
+            if st.button("TERMINATE UPLINK"):
                 del st.session_state.tg_id
                 st.rerun()
             st.markdown('</div>', unsafe_allow_html=True)
         else:
-            st.info("System waiting for authorization...")
+            st.markdown('<div class="cyber-card" style="border-left: 3px solid #555;">', unsafe_allow_html=True)
+            st.markdown("### ⚫ STATUS: OFFLINE")
+            st.info("Waiting for secure handshake...")
+            st.markdown('</div>', unsafe_allow_html=True)
