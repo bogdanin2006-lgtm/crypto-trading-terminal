@@ -2,143 +2,62 @@ import streamlit as st
 import ccxt
 import pandas as pd
 import plotly.graph_objects as go
-import plotly.express as px
 import numpy as np
+import requests
 from datetime import datetime, timedelta
 
-# --- 1. КОНФИГУРАЦИЯ И CSS-СТИЛИ (КИБЕРПАНК) ---
-st.set_page_config(page_title="NANO BANANA TRADE", layout="wide", page_icon="🍌")
+# --- 1. CONFIG & SESSION STATE (СИМУЛЯТОР) ---
+st.set_page_config(page_title="NANO TRADER PRO", layout="wide", page_icon="💎")
 
-# Этот CSS превращает стандартный Streamlit в неоновый терминал
+# Инициализация виртуального кошелька
+if 'balance_usd' not in st.session_state:
+    st.session_state.balance_usd = 10000.0  # $10,000 старт
+if 'portfolio' not in st.session_state:
+    st.session_state.portfolio = {'BTC': 0.0, 'ETH': 0.0, 'SOL': 0.0, 'XRP': 0.0}
+if 'trade_history' not in st.session_state:
+    st.session_state.trade_history = []
+
+# --- 2. CSS STYLING (CYBERPUNK) ---
 st.markdown("""
     <style>
-        /* Основной фон и текст */
-        .stApp {
-            background-color: #050816; /* Глубокий темный фон */
-            color: #e0fbfc; /* Светло-голубой текст */
-            font-family: 'Roboto Mono', monospace; /* Моноширинный шрифт */
-        }
+        .stApp { background-color: #050816; color: #e0fbfc; font-family: 'Roboto Mono', monospace; }
+        section[data-testid="stSidebar"] { background-color: #0a0e24; border-right: 1px solid #1b2b4b; }
         
-        /* Сайдбар */
-        section[data-testid="stSidebar"] {
-            background-color: #0a0e24; /* Чуть светлее фон сайдбара */
-            border-right: 1px solid #1b2b4b;
-        }
-
-        /* Заголовки */
-        h1, h2, h3 {
-            color: #00f2ff !important; /* Неоновый голубой */
-            text-shadow: 0 0 10px rgba(0, 242, 255, 0.5);
-            font-weight: bold;
-            letter-spacing: 1px;
-        }
-
-        /* Метрики (Виджеты с ценами) */
+        /* Metrics */
         div[data-testid="stMetric"] {
             background-color: rgba(13, 19, 43, 0.8);
-            border: 1px solid #00f2ff; /* Голубая рамка */
-            padding: 10px;
-            border-radius: 8px;
-            box-shadow: 0 0 10px rgba(0, 242, 255, 0.2) inset; /* Внутреннее свечение */
-            transition: all 0.3s ease;
+            border: 1px solid #00f2ff;
+            padding: 10px; border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0, 242, 255, 0.1) inset;
         }
-        div[data-testid="stMetric"]:hover {
-             box-shadow: 0 0 20px rgba(0, 242, 255, 0.4) inset, 0 0 10px rgba(0, 242, 255, 0.4); /* Эффект при наведении */
-        }
-        div[data-testid="stMetricLabel"] { color: #8a9dbf; font-size: 12px; }
-        div[data-testid="stMetricValue"] { color: #ffffff; font-size: 18px; }
-        div[data-testid="stMetricDelta"] { font-size: 12px; }
-
-        /* Кнопки BUY / SELL */
-        .stButton button {
-            width: 100%;
-            border: none;
-            color: white;
-            padding: 15px 32px;
-            text-align: center;
-            text-decoration: none;
-            display: inline-block;
-            font-size: 16px;
-            margin: 4px 2px;
-            cursor: pointer;
-            border-radius: 8px;
-            font-weight: bold;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            transition: transform 0.1s;
-        }
-        .stButton button:active { transform: scale(0.98); }
-
-        /* Зеленая кнопка BUY */
-        div.row-widget.stButton > button[kind="primary"] {
-            background: linear-gradient(90deg, #00c853 0%, #69f0ae 100%);
-            box-shadow: 0 0 20px rgba(0, 200, 83, 0.6);
-        }
-
-        /* Красная кнопка SELL */
-        div.row-widget.stButton > button[kind="secondary"] {
-             background: linear-gradient(90deg, #d50000 0%, #ff5252 100%);
-             box-shadow: 0 0 20px rgba(213, 0, 0, 0.6);
-             color: white !important; /* Принудительно белый текст */
-        }
-
-        /* Вкладки (Tabs) */
-        .stTabs [data-baseweb="tab-list"] {
-            gap: 10px;
-            background-color: transparent;
-            border-bottom: 1px solid #1b2b4b;
-        }
-        .stTabs [data-baseweb="tab"] {
-            height: 40px;
-            border-radius: 4px 4px 0 0;
-            color: #8a9dbf;
-            border: 1px solid transparent;
-            background-color: transparent;
-            transition: all 0.3s;
-        }
-        .stTabs [aria-selected="true"] {
-            background-color: rgba(0, 242, 255, 0.1);
-            color: #00f2ff;
-            border-color: #00f2ff;
-            border-bottom: none;
-        }
-
-        /* Таблицы (Dataframes) */
-        .stDataFrame {
-            border: 1px solid #1b2b4b;
-            border-radius: 8px;
-            overflow: hidden;
-        }
+        div[data-testid="stMetricLabel"] { color: #8a9dbf; }
+        div[data-testid="stMetricValue"] { color: #fff; text-shadow: 0 0 5px #00f2ff; }
+        
+        /* Buttons */
+        div.stButton > button { width: 100%; border-radius: 5px; font-weight: bold; border: none; }
+        div.stButton > button:hover { transform: scale(1.02); }
+        
+        /* Tabs */
+        .stTabs [data-baseweb="tab-list"] { gap: 20px; }
+        .stTabs [data-baseweb="tab"] { color: #8a9dbf; }
+        .stTabs [aria-selected="true"] { color: #00f2ff; border-bottom-color: #00f2ff; }
     </style>
 """, unsafe_allow_html=True)
 
-
-# --- 2. ФУНКЦИИ ДАННЫХ (С ФОЛЛБЭКОМ) ---
-@st.cache_data(ttl=30)
-def fetch_top_coins_data():
-    """Получает данные для списка монет в сайдбаре."""
-    coins = ['BTC/USD', 'ETH/USD', 'SOL/USD', 'XRP/USD', 'DOGE/USD']
-    data = {}
-    kraken = ccxt.kraken()
+# --- 3. DATA ENGINE ---
+@st.cache_data(ttl=300)
+def fetch_fear_greed():
+    """Получает реальный индекс страха и жадности"""
     try:
-        tickers = kraken.fetch_tickers(coins)
-        for symbol, ticker in tickers.items():
-            data[symbol] = {
-                'price': ticker['last'],
-                'change': ticker['percentage']
-            }
+        r = requests.get("https://api.alternative.me/fng/")
+        data = r.json()
+        return int(data['data'][0]['value']), data['data'][0]['value_classification']
     except:
-        # Фейковые данные, если API не отвечает
-        for symbol in coins:
-            base = 50000 if 'BTC' in symbol else (3000 if 'ETH' in symbol else 100)
-            price = base + np.random.uniform(-base*0.05, base*0.05)
-            change = np.random.uniform(-5, 5)
-            data[symbol] = {'price': price, 'change': change}
-    return data
+        return 50, "Neutral"
 
 @st.cache_data(ttl=60)
-def fetch_ohlcv_data(symbol, timeframe):
-    """Получает исторические данные для графика."""
+def fetch_ohlcv(symbol, timeframe):
+    """Данные с Kraken или генерация"""
     try:
         exchange = ccxt.kraken()
         kraken_symbol = symbol.replace("USDT", "USD")
@@ -146,154 +65,177 @@ def fetch_ohlcv_data(symbol, timeframe):
         df = pd.DataFrame(bars, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
         df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
         return df
-    except Exception:
-        # Фейковые данные для графика
+    except:
+        # Fallback generator
         dates = pd.date_range(end=datetime.now(), periods=100, freq=timeframe.replace('m', 'T'))
-        base_price = 50000 if 'BTC' in symbol else 3000
-        prices = base_price + np.cumsum(np.random.randn(100) * (base_price * 0.002))
-        df = pd.DataFrame({
-            'timestamp': dates,
-            'open': prices, 'high': prices*1.005, 'low': prices*0.995,
-            'close': prices + np.random.randn(100)*(base_price*0.001),
-            'volume': np.random.randint(100, 1000, 100)
-        })
-        return df
+        base = 50000 if 'BTC' in symbol else 3000
+        prices = base + np.cumsum(np.random.randn(100) * (base*0.002))
+        return pd.DataFrame({'timestamp': dates, 'open': prices, 'high': prices*1.01, 'low': prices*0.99, 'close': prices, 'volume': np.random.randint(100,1000,100)})
 
-# --- 3. САЙДБАР (ЛЕВАЯ ПАНЕЛЬ) ---
+# --- 4. SIDEBAR (WALLET & SETTINGS) ---
 with st.sidebar:
-    # Заголовок как на картинке
-    st.markdown("# 🍌 NANO BANANA")
-    st.markdown("### MARKET WATCH")
+    st.title("💎 NANO TRADER")
     
-    # Список монет с ценами
-    top_coins = fetch_top_coins_data()
-    for symbol, data in top_coins.items():
-        short_name = symbol.split('/')[0]
-        st.metric(
-            label=short_name,
-            value=f"${data['price']:,.2f}",
-            delta=f"{data['change']:.2f}%",
-            delta_color="normal" # Автоматически зеленый/красный
-        )
-    
-    st.markdown("---")
-    # Имитация нижней навигации через радио-кнопки
-    nav_selection = st.radio(
-        "NAVIGATION",
-        ["📊 Market", "💼 Portfolio", "📈 Charts", "⚙️ Settings", "📰 News"],
-        label_visibility="collapsed" # Скрываем заголовок радио
-    )
-
-
-# --- 4. ОСНОВНОЙ ЭКРАН ---
-# Логика переключения вкладок
-if nav_selection == "📊 Market":
-    
-    # Верхняя часть: Заголовок и Карта
-    col_title, col_map = st.columns([1, 2])
-    with col_title:
-        st.title("GLOBAL TRADE VIEW")
-        # Выбор актива и таймфрейма для главного графика
-        selected_pair = st.selectbox("SELECT ASSET", ["BTC/USD", "ETH/USD", "SOL/USD"], index=0)
-        selected_tf = st.selectbox("TIMEFRAME", ["1m", "15m", "1h", "4h", "1d"], index=2)
-        
-    with col_map:
-        # Заглушка для карты мира (Plotly Express)
-        df_map = pd.DataFrame({
-            'lat': np.random.uniform(-50, 70, 20),
-            'lon': np.random.uniform(-120, 140, 20),
-            'size': np.random.randint(10, 50, 20)
-        })
-        fig_map = px.scatter_geo(df_map, lat='lat', lon='lon', size='size', 
-                                 projection="natural earth", template="plotly_dark")
-        fig_map.update_geos(bgcolor='rgba(0,0,0,0)', showcountries=True, countrycolor="#1b2b4b",
-                            showcoastlines=False, showland=True, landcolor="#0a0e24")
-        fig_map.update_layout(height=250, margin={"r":0,"t":0,"l":0,"b":0}, paper_bgcolor='rgba(0,0,0,0)')
-        fig_map.update_traces(marker=dict(color="#00f2ff", opacity=0.7, line=dict(width=0)))
-        st.plotly_chart(fig_map, use_container_width=True)
-
-    # Центральная часть: График
-    df = fetch_ohlcv_data(selected_pair, selected_tf)
-    if not df.empty:
-        # График свечей + Объем
-        fig = go.Figure()
-        fig.add_trace(go.Candlestick(x=df['timestamp'], open=df['open'], high=df['high'],
-                                     low=df['low'], close=df['close'], name="Price",
-                                     increasing_line_color='#00c853', decreasing_line_color='#d50000'))
-        # Добавляем объем вторым слоем (прозрачным)
-        fig.add_trace(go.Bar(x=df['timestamp'], y=df['volume'], name="Volume", 
-                             marker_color='rgba(0, 242, 255, 0.3)', yaxis='y2'))
-
-        fig.update_layout(
-            height=500,
-            plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
-            font={'color': '#e0fbfc'},
-            xaxis_rangeslider_visible=False,
-            yaxis=dict(title="Price", gridcolor='#1b2b4b'),
-            yaxis2=dict(title="Volume", overlaying='y', side='right', showgrid=False),
-            margin=dict(l=10, r=10, t=10, b=10),
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
-        )
-        st.plotly_chart(fig, use_container_width=True)
-
-    # Нижняя часть: Торговля и Ордера
-    col_trade, col_orders = st.columns([1, 2])
-    
-    with col_trade:
-        st.subheader("QUICK TRADE")
-        # Поля ввода (заглушки)
-        amount = st.number_input("Amount", min_value=0.0, value=0.1, step=0.01)
-        price_input = st.number_input("Price (Limit)", min_value=0.0, value=df['close'].iloc[-1], format="%.2f")
-        
-        # Кнопки BUY / SELL с кастомными стилями
-        c1, c2 = st.columns(2)
-        with c1:
-            # type="primary" используется для зеленой кнопки в CSS
-            if st.button("BUY NOW", type="primary", use_container_width=True):
-                st.toast(f"BUY Order Placed: {amount} {selected_pair.split('/')[0]} @ ${price_input}", icon="🟢")
-        with c2:
-            # type="secondary" используется для красной кнопки в CSS
-            if st.button("SELL NOW", type="secondary", use_container_width=True):
-                st.toast(f"SELL Order Placed: {amount} {selected_pair.split('/')[0]} @ ${price_input}", icon="🔴")
-
-    with col_orders:
-        # Вкладки для таблиц
-        tab_open, tab_history = st.tabs(["OPEN ORDERS", "TRADE HISTORY"])
-        
-        with tab_open:
-            # Фейковые данные для таблицы открытых ордеров
-            orders_data = {
-                'Time': [datetime.now().strftime("%H:%M:%S"), (datetime.now()-timedelta(minutes=5)).strftime("%H:%M:%S")],
-                'Symbol': [selected_pair, 'ETH/USD'],
-                'Type': ['BUY', 'SELL'],
-                'Price': [f"${price_input:,.2f}", "$3,450.00"],
-                'Amount': [amount, 1.5],
-                'Status': ['Open', 'Open']
-            }
-            st.dataframe(pd.DataFrame(orders_data), use_container_width=True, hide_index=True)
+    # 1. Виртуальный кошелек
+    st.markdown("### 💳 YOUR WALLET")
+    total_balance = st.session_state.balance_usd
+    # Считаем стоимость крипты в портфеле (примерно)
+    crypto_val = 0
+    for coin, qty in st.session_state.portfolio.items():
+        if qty > 0:
+            # Для простоты берем фикс цены, в реале надо брать текущую
+            price = 90000 if coin == 'BTC' else (3000 if coin == 'ETH' else 100) 
+            crypto_val += qty * price
             
-        with tab_history:
-             # Фейковые данные для истории
-            history_data = {
-                'Time': [(datetime.now()-timedelta(hours=1)).strftime("%H:%M:%S"), (datetime.now()-timedelta(days=1)).strftime("%H:%M:%S")],
-                'Symbol': [selected_pair, 'SOL/USD'],
-                'Side': ['BUY', 'BUY'],
-                'Price': [f"${df['open'].iloc[0]:,.2f}", "$120.50"],
-                'Filled': ['100%', '100%'],
-                'Total ($)': [f"${df['open'].iloc[0]*0.5:,.2f}", "$602.50"]
-            }
-            st.dataframe(pd.DataFrame(history_data), use_container_width=True, hide_index=True)
+    st.metric("Total Equity", f"${total_balance + crypto_val:,.2f}", delta=f"{((total_balance + crypto_val - 10000)/10000)*100:.2f}% PnL")
+    st.metric("Cash (USD)", f"${st.session_state.balance_usd:,.2f}")
+    
+    st.markdown("### 🎒 POSITIONS")
+    for coin, qty in st.session_state.portfolio.items():
+        if qty > 0:
+            st.write(f"**{coin}:** {qty:.4f}")
+            
+    st.markdown("---")
+    st.caption("Mode: Paper Trading (Simulation)")
 
-# --- ЗАГЛУШКИ ДЛЯ ОСТАЛЬНЫХ ВКЛАДОК НАВИГАЦИИ ---
-elif nav_selection == "💼 Portfolio":
-    st.title("PORTFOLIO OVERVIEW")
-    st.info("Portfolio features are under construction. Stay tuned! 🚧")
-elif nav_selection == "📈 Charts":
-    st.title("ADVANCED CHARTS")
-    st.info("Advanced charting tools coming soon! 🚀")
-elif nav_selection == "⚙️ Settings":
-    st.title("TERMINAL SETTINGS")
-    st.write("API Keys, Notifications, Theme selection...")
-elif nav_selection == "📰 News":
-    st.title("CRYPTO NEWS FEED")
-    st.write("Latest headlines from the crypto world...")
+# --- 5. MAIN AREA ---
+
+# Top Bar: Ticker & Sentiment
+col1, col2 = st.columns([3, 1])
+
+with col1:
+    selected_pair = st.selectbox("Select Asset", ["BTC/USD", "ETH/USD", "SOL/USD"], index=0)
+    timeframe = st.selectbox("Timeframe", ["1m", "15m", "1h", "4h"], index=2)
+    df = fetch_ohlcv(selected_pair, timeframe)
+    current_price = df['close'].iloc[-1]
+    
+with col2:
+    fng_val, fng_text = fetch_fear_greed()
+    st.metric("Fear & Greed Index", f"{fng_val}/100", fng_text)
+
+# --- CHARTING AREA ---
+tab_chart, tab_depth, tab_ai = st.tabs(["📈 PRO CHART", "🌊 DEPTH", "🤖 AI PREDICTION"])
+
+with tab_chart:
+    # Controls
+    c1, c2, c3 = st.columns(3)
+    show_sma = c1.checkbox("Show SMA (20)", value=True)
+    show_bb = c2.checkbox("Bollinger Bands", value=False)
+    show_vol = c3.checkbox("Show Volume", value=True)
+
+    fig = go.Figure()
+    
+    # Candlestick
+    fig.add_trace(go.Candlestick(x=df['timestamp'], open=df['open'], high=df['high'],
+                                 low=df['low'], close=df['close'], name="Price",
+                                 increasing_line_color='#00ff00', decreasing_line_color='#ff0000'))
+    
+    # Indicators
+    if show_sma:
+        sma = df['close'].rolling(20).mean()
+        fig.add_trace(go.Scatter(x=df['timestamp'], y=sma, line=dict(color='orange', width=1.5), name="SMA 20"))
+        
+    if show_bb:
+        sma = df['close'].rolling(20).mean()
+        std = df['close'].rolling(20).std()
+        upper = sma + (std * 2)
+        lower = sma - (std * 2)
+        fig.add_trace(go.Scatter(x=df['timestamp'], y=upper, line=dict(color='rgba(0, 242, 255, 0.3)'), name="BB Upper"))
+        fig.add_trace(go.Scatter(x=df['timestamp'], y=lower, line=dict(color='rgba(0, 242, 255, 0.3)'), fill='tonexty', name="BB Lower"))
+
+    fig.update_layout(height=500, plot_bgcolor='#050816', paper_bgcolor='#050816', 
+                      font={'color': '#e0fbfc'}, xaxis_rangeslider_visible=False,
+                      margin=dict(l=0, r=0, t=0, b=0))
+    st.plotly_chart(fig, use_container_width=True)
+
+with tab_depth:
+    # Simulated Order Book
+    st.markdown("### Market Depth (Order Book)")
+    depth_x = np.linspace(current_price * 0.98, current_price * 1.02, 100)
+    bid_vol = np.exp(-((depth_x - current_price*0.98)**2) / 1000) * 50 # Fake math for shape
+    ask_vol = np.exp(-((depth_x - current_price*1.02)**2) / 1000) * 50
+    
+    fig_depth = go.Figure()
+    fig_depth.add_trace(go.Scatter(x=depth_x[depth_x < current_price], y=bid_vol[depth_x < current_price], fill='tozeroy', name='Bids (Buy)', line_color='#00ff00'))
+    fig_depth.add_trace(go.Scatter(x=depth_x[depth_x >= current_price], y=ask_vol[depth_x >= current_price], fill='tozeroy', name='Asks (Sell)', line_color='#ff0000'))
+    fig_depth.update_layout(height=400, plot_bgcolor='#050816', paper_bgcolor='#050816', font={'color': '#fff'})
+    st.plotly_chart(fig_depth, use_container_width=True)
+
+with tab_ai:
+    st.markdown("### 🤖 Neural Network Trend Prediction")
+    st.info("Based on LSTM model simulation (Beta)")
+    
+    # Fake AI projection
+    future_dates = [df['timestamp'].iloc[-1] + timedelta(minutes=i*15) for i in range(1, 11)]
+    trend = 1 if fng_val > 50 else -1
+    future_prices = [current_price * (1 + (i * 0.001 * trend)) for i in range(1, 11)]
+    
+    fig_ai = go.Figure()
+    fig_ai.add_trace(go.Scatter(x=df['timestamp'][-20:], y=df['close'][-20:], name="Historical", line_color='gray'))
+    fig_ai.add_trace(go.Scatter(x=future_dates, y=future_prices, name="AI Forecast", line=dict(color='#00f2ff', dash='dot')))
+    fig_ai.update_layout(height=400, plot_bgcolor='#050816', paper_bgcolor='#050816', font={'color': '#fff'})
+    st.plotly_chart(fig_ai, use_container_width=True)
+
+# --- 6. TRADING TERMINAL ---
+st.markdown("---")
+st.subheader("⚡ EXECUTION TERMINAL")
+
+c_trade1, c_trade2 = st.columns([1, 2])
+
+with c_trade1:
+    trade_amount = st.number_input("Amount (USD)", min_value=10.0, max_value=st.session_state.balance_usd, value=1000.0)
+    coin_symbol = selected_pair.split('/')[0]
+    
+    col_buy, col_sell = st.columns(2)
+    
+    if col_buy.button("BUY MARKET 🟢", type="primary"):
+        cost = trade_amount
+        if cost <= st.session_state.balance_usd:
+            # Execute Buy
+            coin_qty = cost / current_price
+            st.session_state.balance_usd -= cost
+            st.session_state.portfolio[coin_symbol] += coin_qty
+            
+            # Log
+            st.session_state.trade_history.append({
+                "Time": datetime.now().strftime("%H:%M:%S"),
+                "Type": "BUY",
+                "Asset": coin_symbol,
+                "Price": current_price,
+                "Amount": coin_qty,
+                "Total": cost
+            })
+            st.toast(f"Bought {coin_qty:.4f} {coin_symbol}!", icon="✅")
+            st.rerun() # Refresh UI
+        else:
+            st.error("Insufficient Funds!")
+
+    if col_sell.button("SELL MARKET 🔴", type="secondary"):
+        # Продаем всё что есть (упрощенно для примера)
+        qty_owned = st.session_state.portfolio[coin_symbol]
+        if qty_owned > 0:
+            sale_value = qty_owned * current_price
+            st.session_state.balance_usd += sale_value
+            st.session_state.portfolio[coin_symbol] = 0.0
+            
+            # Log
+            st.session_state.trade_history.append({
+                "Time": datetime.now().strftime("%H:%M:%S"),
+                "Type": "SELL",
+                "Asset": coin_symbol,
+                "Price": current_price,
+                "Amount": qty_owned,
+                "Total": sale_value
+            })
+            st.toast(f"Sold {qty_owned:.4f} {coin_symbol}!", icon="💰")
+            st.rerun()
+        else:
+            st.error(f"You don't own any {coin_symbol}")
+
+with c_trade2:
+    st.write("📜 Recent Transactions")
+    if st.session_state.trade_history:
+        df_hist = pd.DataFrame(st.session_state.trade_history)
+        st.dataframe(df_hist.sort_index(ascending=False), use_container_width=True, height=150)
+    else:
+        st.info("No trades executed yet. Start trading!")
