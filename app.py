@@ -2,129 +2,142 @@ import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 import ccxt
-import numpy as np
+import requests
 from datetime import datetime
 
-# --- 1. CONFIG & STYLE (Blue Horizon Theme) ---
-st.set_page_config(layout="wide", page_title="Blue Horizon Terminal")
+# --- 1. SETTINGS & THEMES ---
+st.set_page_config(layout="wide", page_title="Blue Horizon Pro", page_icon="🌊")
 
-st.markdown("""
-<style>
-    .stApp { background-color: #0E1117; color: #F0F2F6; }
-    [data-testid="stSidebar"] { background-color: #161B22; border-right: 1px solid #00BFFF; }
-    .stButton>button { background-color: #00BFFF !important; color: white !important; border-radius: 5px; width: 100%; }
-    h1, h2, h3 { color: #00BFFF; }
-    .metric-card { 
-        background-color: #1B2430; 
-        padding: 15px; 
-        border-radius: 10px; 
-        border-left: 5px solid #00BFFF;
-        margin-bottom: 10px;
-    }
-</style>
-""", unsafe_allow_html=True)
+# Функция для смены темы (можно расширять)
+def apply_style():
+    st.markdown("""
+    <style>
+        .stApp { background-color: #0E1117; color: #F0F2F6; }
+        [data-testid="stSidebar"] { background-color: #161B22; border-right: 1px solid #00BFFF; }
+        .stButton>button { 
+            background-color: #00BFFF !important; 
+            color: white !important; 
+            border: none;
+            box-shadow: 0px 4px 10px rgba(0, 191, 255, 0.3);
+        }
+        .stButton>button:hover { box-shadow: 0px 4px 20px rgba(0, 191, 255, 0.6); }
+        .card { 
+            background-color: #1B2430; 
+            padding: 20px; 
+            border-radius: 12px; 
+            border-bottom: 3px solid #00BFFF;
+            margin-bottom: 15px;
+        }
+    </style>
+    """, unsafe_allow_html=True)
 
-# --- 2. DATA ENGINE (Kraken for US Servers) ---
-# Используем Kraken, чтобы избежать Error 451 от Binance
+apply_style()
+
+# --- 2. DATA ENGINE ---
 @st.cache_resource
 def init_exchange():
     return ccxt.kraken({'enableRateLimit': True})
 
 exchange = init_exchange()
 
-def safe_get_tickers(symbols):
+# --- 3. TELEGRAM ALERT SYSTEM ---
+def send_telegram_msg(token, chat_id, message):
+    url = f"https://api.telegram.org/bot{token}/sendMessage"
+    payload = {"chat_id": chat_id, "text": message}
     try:
-        # Kraken использует USD вместо USDT
-        kraken_symbols = [s.replace('USDT', 'USD') for s in symbols]
-        return exchange.fetch_tickers(kraken_symbols)
+        requests.post(url, json=payload)
     except:
-        return {s.replace('USDT', 'USD'): {'last': 0.0, 'percentage': 0.0} for s in symbols}
+        pass
 
-# --- 3. SIDEBAR NAVIGATION ---
-# Переменная 'menu' должна определяться ПЕРЕД использованием в условиях
+# --- 4. SIDEBAR (English) ---
 with st.sidebar:
-    st.title("🌊 Blue Horizon")
-    menu = st.radio("Навигация", ["Обзор рынка", "Торговый терминал", "Мой портфель", "Настройки API"])
+    st.title("🌊 BLUE HORIZON")
+    st.subheader("Navigation")
+    menu = st.radio("Go to:", ["Market Overview", "Trading Terminal", "Portfolio", "System Settings"])
     st.markdown("---")
-    selected_pair = st.selectbox("Валютная пара", ["BTC/USD", "ETH/USD", "SOL/USD", "XRP/USD"])
-
-# --- 4. MAIN LOGIC ---
-
-if menu == "Обзор рынка":
-    st.header("📈 Обзор рынка (Kraken Live)")
+    pair = st.selectbox("Trading Pair", ["BTC/USD", "ETH/USD", "SOL/USD"])
     
-    target_coins = ['BTC/USD', 'ETH/USD', 'SOL/USD', 'XRP/USD', 'ADA/USD']
-    tickers = safe_get_tickers(target_coins)
-    
-    cols = st.columns(len(target_coins))
-    for i, symbol in enumerate(target_coins):
-        data = tickers.get(symbol, {'last': 0, 'percentage': 0})
-        with cols[i]:
-            st.markdown(f"""<div class="metric-card">
-                <small>{symbol}</small><br>
-                <strong style="font-size:18px;">${data['last']:,.2f}</strong><br>
-                <span style="color:{'#00ff00' if data['percentage'] >= 0 else '#ff4b4b'}">
-                    {data['percentage']:.2f}%
-                </span>
-            </div>""", unsafe_allow_html=True)
+    st.markdown("### 🤖 Telegram Alerts")
+    tg_token = st.text_input("Bot Token", type="password", placeholder="123456:ABC...")
+    tg_chat = st.text_input("Chat ID", placeholder="987654321")
 
-    # Интерактивный график
-    st.subheader("Тренд актива")
+# --- 5. MAIN INTERFACE ---
+
+if menu == "Market Overview":
+    st.header("🌍 Global Market Pulse")
+    
+    # Live Tickers
+    coins = ['BTC/USD', 'ETH/USD', 'SOL/USD', 'XRP/USD']
     try:
-        ohlcv = exchange.fetch_ohlcv(selected_pair, timeframe='1h', limit=50)
-        df = pd.DataFrame(ohlcv, columns=['time', 'open', 'high', 'low', 'close', 'volume'])
-        df['time'] = pd.to_datetime(df['time'], unit='ms')
-        
-        fig = go.Figure(data=[go.Candlestick(
-            x=df['time'], open=df['open'], high=df['high'], low=df['low'], close=df['close'],
-            increasing_line_color='#00BFFF', decreasing_line_color='#1B2430'
-        )])
-        fig.update_layout(template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
-        st.plotly_chart(fig, use_container_width=True)
+        tickers = exchange.fetch_tickers(coins)
+        cols = st.columns(len(coins))
+        for i, symbol in enumerate(coins):
+            val = tickers.get(symbol, {'last': 0, 'percentage': 0})
+            with cols[i]:
+                st.markdown(f"""<div class="card">
+                    <small style='color:#00BFFF'>{symbol}</small><br>
+                    <span style='font-size:22px; font-weight:bold;'>${val['last']:,.2f}</span><br>
+                    <span style='color:{'#00ff00' if val['percentage'] >= 0 else '#ff4b4b'}'>
+                        {val['percentage']:.2f}%
+                    </span>
+                </div>""", unsafe_allow_html=True)
     except:
-        st.warning("Не удалось загрузить график. Проверьте соединение.")
+        st.error("API Connection unstable. Please wait.")
 
-elif menu == "Торговый терминал":
-    col_t1, col_t2 = st.columns([3, 1])
+    # Main Chart
+    st.subheader(f"Price Action: {pair}")
+    ohlcv = exchange.fetch_ohlcv(pair, timeframe='1h', limit=60)
+    df = pd.DataFrame(ohlcv, columns=['time', 'open', 'high', 'low', 'close', 'volume'])
+    df['time'] = pd.to_datetime(df['time'], unit='ms')
     
-    with col_t1:
-        st.subheader(f"Терминал: {selected_pair}")
-        st.info("Здесь отображается расширенный график с индикаторами.")
-        # Дублируем график или добавляем стакан
-        st.write("График в режиме ожидания сигнала...")
+    fig = go.Figure(data=[go.Candlestick(
+        x=df['time'], open=df['open'], high=df['high'], low=df['low'], close=df['close'],
+        increasing_line_color='#00BFFF', decreasing_line_color='#1B2430'
+    )])
+    fig.update_layout(template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', height=500)
+    st.plotly_chart(fig, use_container_width=True)
 
-    with col_t2:
-        st.subheader("Order Book")
-        try:
-            ob = exchange.fetch_order_book(selected_pair)
-            df_asks = pd.DataFrame(ob['asks'], columns=['Price', 'Qty']).head(5)
-            df_bids = pd.DataFrame(ob['bids'], columns=['Price', 'Qty']).head(5)
-            st.write("Asks")
-            st.table(df_asks)
-            st.write("Bids")
-            st.table(df_bids)
-        except:
-            st.write("Стакан временно пуст.")
+elif menu == "Trading Terminal":
+    st.header("⚡ Live Execution Terminal")
+    
+    col_order, col_tools = st.columns([2, 1])
+    
+    with col_order:
+        st.subheader("Order Placement")
+        side = st.segmented_control("Action", ["BUY", "SELL"], default="BUY")
+        amount = st.number_input("Amount to trade", min_value=0.0, step=0.01)
+        price_limit = st.number_input("Limit Price", value=0.0)
+        
+        if st.button(f"Execute {side} Order"):
+            st.warning("Simulation: Order sent to Kraken matching engine.")
+            if tg_token and tg_chat:
+                send_telegram_msg(tg_token, tg_chat, f"🚀 Alert: {side} order for {amount} {pair} executed!")
 
-elif menu == "Мой портфель":
-    st.header("💼 Мой портфель")
-    c1, c2 = st.columns(2)
+    with col_tools:
+        st.subheader("Market Depth")
+        ob = exchange.fetch_order_book(pair)
+        bids = pd.DataFrame(ob['bids'], columns=['Price', 'Qty']).head(5)
+        st.write("Current Bids")
+        st.dataframe(bids, hide_index=True)
+
+elif menu == "Portfolio":
+    st.header("💼 Asset Allocation")
+    c1, c2 = st.columns([1, 1])
     with c1:
-        st.markdown("""<div class="metric-card">
-            <h3>Equity Value</h3>
-            <h1>$12,450.00</h1>
-            <small>+5.2% за сегодня</small>
+        st.markdown("""<div class="card">
+            <h3 style='margin-top:0;'>Estimated Balance</h3>
+            <h1 style='color:#00BFFF;'>$24,105.80</h1>
+            <p style='color:#00ff00;'>+12.4% Monthly Growth</p>
         </div>""", unsafe_allow_html=True)
     with c2:
-        labels = ['BTC', 'ETH', 'USDT']
-        values = [60, 30, 10]
-        fig = go.Figure(data=[go.Pie(labels=labels, values=values, hole=.5)])
-        fig.update_layout(template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)')
+        fig = go.Figure(data=[go.Pie(labels=['BTC', 'ETH', 'USD'], values=[55, 35, 10], hole=.4)])
+        fig.update_layout(template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)', margin=dict(t=0, b=0, l=0, r=0))
         st.plotly_chart(fig, use_container_width=True)
 
-elif menu == "Настройки API":
-    st.header("⚙️ Настройки")
-    st.text_input("API Key", type="password")
-    st.text_input("API Secret", type="password")
-    if st.button("Connect Account"):
-        st.success("Connected to Kraken API")
+elif menu == "System Settings":
+    st.header("⚙️ Terminal Configuration")
+    st.text_input("Kraken API Key", type="password")
+    st.text_input("Kraken Secret Key", type="password")
+    st.selectbox("Default Currency", ["USD", "EUR", "GBP"])
+    if st.button("Save Settings"):
+        st.success("Configuration updated successfully!")
